@@ -16,15 +16,48 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+-- Crear tipos enumerados
+CREATE TYPE public.session_type AS ENUM ('user', 'staff');
+
+-- Crear esquema public
+CREATE SCHEMA public;
+SET search_path TO public;
+
+-- Documentación de tablas
+COMMENT ON TABLE public.order_statuses IS 'Almacena los diferentes estados posibles de una orden (pendiente, en preparación, completada, cancelada)';
+COMMENT ON TABLE public.categories IS 'Categorías de los platillos del menú (desayuno, comida, cena, etc.)';
+COMMENT ON TABLE public.menu_items IS 'Platillos y bebidas disponibles en el menú';
+COMMENT ON TABLE public.order_items IS 'Items individuales dentro de una orden';
+COMMENT ON TABLE public.orders IS 'Órdenes realizadas por los clientes';
+COMMENT ON TABLE public.order_status_history IS 'Historial de cambios de estado en las órdenes';
+COMMENT ON TABLE public.roles IS 'Roles del personal (mesero, cocinero, administrador, gerente)';
+COMMENT ON TABLE public.session IS 'Sesiones activas de usuarios y personal';
+COMMENT ON TABLE public.staff IS 'Personal del restaurante';
+COMMENT ON TABLE public.table_statuses IS 'Estados posibles de las mesas (disponible, reservado, ocupado, etc.)';
+COMMENT ON TABLE public.tables IS 'Mesas del restaurante';
+COMMENT ON TABLE public.users IS 'Usuarios del sistema';
+
+-- Documentación de restricciones de negocio
+COMMENT ON CONSTRAINT check_price_positive ON public.menu_items IS 'El precio de un platillo no puede ser negativo';
+COMMENT ON CONSTRAINT check_quantity_positive ON public.order_items IS 'La cantidad de items en una orden debe ser mayor a cero';
+COMMENT ON CONSTRAINT check_seats_positive ON public.tables IS 'Una mesa debe tener al menos un asiento';
+COMMENT ON CONSTRAINT session_type_check ON public.session IS 'Una sesión debe ser de tipo usuario o personal, no ambos';
+
+-- Documentación de triggers
+COMMENT ON FUNCTION public.update_timestamp() IS 'Actualiza automáticamente el campo updated_at cuando se modifica un registro';
+COMMENT ON FUNCTION public.calculate_order_item_subtotal() IS 'Calcula automáticamente el subtotal de un item de orden (precio * cantidad)';
+COMMENT ON FUNCTION public.update_order_totals() IS 'Actualiza automáticamente los totales de una orden cuando se modifican sus items';
+COMMENT ON FUNCTION public.log_order_status_change() IS 'Registra automáticamente los cambios de estado en las órdenes';
+
 CREATE TABLE public.order_statuses (
     id integer NOT NULL,
-    name text NOT NULL,
-    description text,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now()
+    name VARCHAR(50) NOT NULL,
+    description VARCHAR(200),
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now()
 );
 
-ALTER TABLE public.order_statuses OWNER TO neondb_owner;
+ALTER TABLE public.order_statuses OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.order_statuses_id_seq
     AS integer
@@ -34,20 +67,19 @@ CREATE SEQUENCE public.order_statuses_id_seq
     NO MAXVALUE
     CACHE 1;
 
-ALTER SEQUENCE public.order_statuses_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.order_statuses_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.order_statuses_id_seq OWNED BY public.order_statuses.id;
 
 CREATE TABLE public.categories (
     id integer NOT NULL,
-    name text NOT NULL,
-    description text,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now()
+    name VARCHAR(50) NOT NULL,
+    description VARCHAR(200),
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now()
 );
 
-
-ALTER TABLE public.categories OWNER TO neondb_owner;
+ALTER TABLE public.categories OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.categories_id_seq
     AS integer
@@ -57,24 +89,26 @@ CREATE SEQUENCE public.categories_id_seq
     NO MAXVALUE
     CACHE 1;
 
-ALTER SEQUENCE public.categories_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.categories_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.categories_id_seq OWNED BY public.categories.id;
 
 CREATE TABLE public.menu_items (
     id integer NOT NULL,
-    name text NOT NULL,
-    description text,
-    price double precision NOT NULL,
-    image_url text,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(500),
+    price DECIMAL(10,2) NOT NULL,
+    image_url VARCHAR(255),
     in_stock boolean DEFAULT true NOT NULL,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now(),
-    category_id integer
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now(),
+    category_id integer,
+    search_vector tsvector GENERATED ALWAYS AS (
+        to_tsvector('spanish', name || ' ' || COALESCE(description, ''))
+    ) STORED
 );
 
-
-ALTER TABLE public.menu_items OWNER TO neondb_owner;
+ALTER TABLE public.menu_items OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.menu_items_id_seq
     AS integer
@@ -84,8 +118,7 @@ CREATE SEQUENCE public.menu_items_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
-ALTER SEQUENCE public.menu_items_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.menu_items_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.menu_items_id_seq OWNED BY public.menu_items.id;
 
@@ -94,14 +127,14 @@ CREATE TABLE public.order_items (
     order_id integer NOT NULL,
     menu_item_id integer NOT NULL,
     quantity integer DEFAULT 1 NOT NULL,
-    price double precision NOT NULL,
-    notes text,
-    created_at timestamp without time zone DEFAULT now(),
-    subtotal double precision DEFAULT 0 NOT NULL
+    price DECIMAL(10,2) NOT NULL,
+    notes VARCHAR(200),
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now(),
+    subtotal DECIMAL(10,2) DEFAULT 0 NOT NULL
 );
 
-
-ALTER TABLE public.order_items OWNER TO neondb_owner;
+ALTER TABLE public.order_items OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.order_items_id_seq
     AS integer
@@ -111,8 +144,7 @@ CREATE SEQUENCE public.order_items_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
-ALTER SEQUENCE public.order_items_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.order_items_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.order_items_id_seq OWNED BY public.order_items.id;
 
@@ -122,17 +154,17 @@ CREATE TABLE public.orders (
     staff_id integer,
     user_id integer,
     status_id integer,
-    total double precision DEFAULT 0 NOT NULL,
-    notes text,
+    total DECIMAL(10,2) DEFAULT 0 NOT NULL,
+    notes VARCHAR(200),
     with_vat_invoice boolean DEFAULT false NOT NULL,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now(),
-    subtotal double precision DEFAULT 0 NOT NULL,
-    tax_rate double precision DEFAULT 0.16 NOT NULL,
-    tax double precision DEFAULT 0 NOT NULL
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now(),
+    subtotal DECIMAL(10,2) DEFAULT 0 NOT NULL,
+    tax_rate DECIMAL(4,2) DEFAULT 0.16 NOT NULL,
+    tax DECIMAL(10,2) DEFAULT 0 NOT NULL
 );
 
-ALTER TABLE public.orders OWNER TO neondb_owner;
+ALTER TABLE public.orders OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.orders_id_seq
     AS integer
@@ -142,20 +174,32 @@ CREATE SEQUENCE public.orders_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
-ALTER SEQUENCE public.orders_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.orders_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.orders_id_seq OWNED BY public.orders.id;
 
-CREATE TABLE public.roles (
-    id integer NOT NULL,
-    name text NOT NULL,
-    description text,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now()
+CREATE TABLE public.order_status_history (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER REFERENCES public.orders(id),
+    old_status_id INTEGER REFERENCES public.order_statuses(id),
+    new_status_id INTEGER REFERENCES public.order_statuses(id),
+    changed_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    changed_by INTEGER REFERENCES public.users(id),
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE public.roles OWNER TO neondb_owner;
+ALTER TABLE public.order_status_history OWNER TO restaurant_admin;
+
+CREATE TABLE public.roles (
+    id integer NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(200),
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now()
+);
+
+ALTER TABLE public.roles OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.roles_id_seq
     AS integer
@@ -166,7 +210,7 @@ CREATE SEQUENCE public.roles_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.roles_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.roles_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.roles_id_seq OWNED BY public.roles.id;
 
@@ -176,29 +220,31 @@ CREATE TABLE public.session (
     expire timestamp(6) without time zone NOT NULL,
     user_id integer,
     staff_id integer,
-    session_type text NOT NULL
+    session_type public.session_type NOT NULL,
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE public.session OWNER TO neondb_owner;
+ALTER TABLE public.session OWNER TO restaurant_admin;
 
 CREATE TABLE public.staff (
     id integer NOT NULL,
-    name text NOT NULL,
+    name VARCHAR(100) NOT NULL,
     role_id integer,
-    rfc_number text NOT NULL,
+    rfc_number VARCHAR(13) NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     profile_url text,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now(),
-    phone text,
-    email text,
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now(),
+    phone VARCHAR(15),
+    email VARCHAR(100),
     password text,
     user_id integer
 );
 
 
-ALTER TABLE public.staff OWNER TO neondb_owner;
+ALTER TABLE public.staff OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.staff_id_seq
     AS integer
@@ -209,7 +255,7 @@ CREATE SEQUENCE public.staff_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.staff_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.staff_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.staff_id_seq OWNED BY public.staff.id;
 
@@ -217,12 +263,12 @@ CREATE TABLE public.table_statuses (
     id integer NOT NULL,
     name text NOT NULL,
     description text,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now()
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now()
 );
 
 
-ALTER TABLE public.table_statuses OWNER TO neondb_owner;
+ALTER TABLE public.table_statuses OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.table_statuses_id_seq
     AS integer
@@ -233,7 +279,7 @@ CREATE SEQUENCE public.table_statuses_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.table_statuses_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.table_statuses_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.table_statuses_id_seq OWNED BY public.table_statuses.id;
 
@@ -242,12 +288,12 @@ CREATE TABLE public.tables (
     number integer NOT NULL,
     seats integer NOT NULL,
     status_id integer,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now()
+    created_at timestamp(6) without time zone DEFAULT now(),
+    updated_at timestamp(6) without time zone DEFAULT now()
 );
 
 
-ALTER TABLE public.tables OWNER TO neondb_owner;
+ALTER TABLE public.tables OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.tables_id_seq
     AS integer
@@ -258,7 +304,7 @@ CREATE SEQUENCE public.tables_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.tables_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.tables_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.tables_id_seq OWNED BY public.tables.id;
 
@@ -266,15 +312,15 @@ CREATE TABLE public.users (
     id integer NOT NULL,
     username text NOT NULL,
     password text NOT NULL,
-    name text NOT NULL,
-    role public.staff_role DEFAULT 'admin'::public.staff_role NOT NULL,
-    created_at timestamp without time zone DEFAULT now(),
-    email text,
+    name VARCHAR(100) NOT NULL,
+    role_id integer REFERENCES public.roles(id),
+    created_at timestamp(6) without time zone DEFAULT now(),
+    email VARCHAR(100),
     profile_url text,
-    phone text
+    phone VARCHAR(15)
 );
 
-ALTER TABLE public.users OWNER TO neondb_owner;
+ALTER TABLE public.users OWNER TO restaurant_admin;
 
 CREATE SEQUENCE public.users_id_seq
     AS integer
@@ -284,7 +330,7 @@ CREATE SEQUENCE public.users_id_seq
     NO MAXVALUE
     CACHE 1;
 
-ALTER SEQUENCE public.users_id_seq OWNER TO neondb_owner;
+ALTER SEQUENCE public.users_id_seq OWNER TO restaurant_admin;
 
 ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
 
@@ -330,7 +376,7 @@ COPY public.order_statuses (id, name, description, created_at, updated_at) FROM 
 4	Cancelada	Orden cancelada	2025-05-11 13:45:39.944738	2025-05-11 13:45:39.944738
 \.
 
-COPY public.order_items (id, order_id, menu_item_id, quantity, price, notes, created_at, subtotal) FROM stdin;
+COPY public.order_items (id, order_id, menu_item_id, quantity, price, notes, created_at, updated_at, subtotal) FROM stdin;
 \.
 
 
@@ -345,7 +391,7 @@ COPY public.roles (id, name, description, created_at, updated_at) FROM stdin;
 \.
 
 
-COPY public.session (sid, sess, expire, user_id, staff_id, session_type) FROM stdin;
+COPY public.session (sid, sess, expire, user_id, staff_id, session_type, created_at, updated_at) FROM stdin;
 \.
 
 COPY public.staff (id, name, role_id, rfc_number, is_active, profile_url, created_at, updated_at, phone, email, password, user_id) FROM stdin;
@@ -383,10 +429,10 @@ COPY public.tables (id, number, seats, status_id, created_at, updated_at) FROM s
 \.
 
 
-COPY public.users (id, username, password, name, role, created_at, email, profile_url, phone) FROM stdin;
-1	fredd	538174070b25adda6abb84fed6846193c61a8bb4b25c8320eb7abc8e5b0895c0aa04e5eb450e5570d83188b9b7957abe7b9db14b5a3c684a76b25e810adcb8d4.0fc83587e3b41faad0186993f56a5209	Fredd Mendez	admin	2025-05-11 05:03:27.280877	\N	\N	\N
-2	admin1	e2df8f80a554ba27d525478800988370f3c183e7268ff1a333fa5fc7195433e5d8e2cce0fcf63649c5592fe0553500a969508b0ca3d350f57e298a4d54e389f8.6a09fa5b5c04e41b9ec34353783a0f88	Alfredo Lopez	admin	2025-05-11 05:08:24.809491	\N	\N	\N
-3	aldrin	f2eada1b876b1c2608bbb15067c320ee657f30e3ac8235fb8393df573a2d1c7f383c5eadc71f70036e194850020948ba031ab5d7d0fc7e323141788dbabd7e7c.cbbc5ad3d456c028f0c03ccc81676c7b	Aldrin Aquino Sanchez	admin	2025-05-11 06:36:03.612913	\N	\N	\N
+COPY public.users (id, username, password, name, role_id, created_at, email, profile_url, phone) FROM stdin;
+1	fredd	538174070b25adda6abb84fed6846193c61a8bb4b25c8320eb7abc8e5b0895c0aa04e5eb450e5570d83188b9b7957abe7b9db14b5a3c684a76b25e810adcb8d4.0fc83587e3b41faad0186993f56a5209	Fredd Mendez	3	2025-05-11 05:03:27.280877	\N	\N	\N
+2	admin1	e2df8f80a554ba27d525478800988370f3c183e7268ff1a333fa5fc7195433e5d8e2cce0fcf63649c5592fe0553500a969508b0ca3d350f57e298a4d54e389f8.6a09fa5b5c04e41b9ec34353783a0f88	Alfredo Lopez	3	2025-05-11 05:08:24.809491	\N	\N	\N
+3	aldrin	f2eada1b876b1c2608bbb15067c320ee657f30e3ac8235fb8393df573a2d1c7f383c5eadc71f70036e194850020948ba031ab5d7d0fc7e323141788dbabd7e7c.cbbc5ad3d456c028f0c03ccc81676c7b	Aldrin Aquino Sanchez	3	2025-05-11 06:36:03.612913	\N	\N	\N
 \.
 
 
@@ -394,9 +440,9 @@ SELECT pg_catalog.setval('public.categories_id_seq', 5, true);
 
 SELECT pg_catalog.setval('public.menu_items_id_seq', 10, true);
 
-SELECT pg_catalog.setval('public.order_items_id_seq', 0, false);
+SELECT pg_catalog.setval('public.order_items_id_seq', 1, false);
 
-SELECT pg_catalog.setval('public.orders_id_seq', 0, true);
+SELECT pg_catalog.setval('public.orders_id_seq', 1, true);
 
 SELECT pg_catalog.setval('public.roles_id_seq', 4, true);
 
@@ -459,6 +505,9 @@ ALTER TABLE ONLY public.users
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_username_unique UNIQUE (username);
 
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id);
+
 CREATE INDEX "IDX_session_expire" ON public.session USING btree (expire);
 
 -- Índices para mejorar el rendimiento
@@ -471,23 +520,26 @@ ALTER TABLE ONLY public.menu_items
     ADD CONSTRAINT menu_items_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id);
 
 ALTER TABLE ONLY public.order_items
-    ADD CONSTRAINT order_items_menu_item_id_menu_items_id_fk FOREIGN KEY (menu_item_id) REFERENCES public.menu_items(id);
+    ADD CONSTRAINT order_items_menu_item_id_fkey FOREIGN KEY (menu_item_id) REFERENCES public.menu_items(id);
 
 ALTER TABLE ONLY public.order_items
-    ADD CONSTRAINT order_items_order_id_orders_id_fk FOREIGN KEY (order_id) REFERENCES public.orders(id);
+    ADD CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.orders(id);
 
 ALTER TABLE ONLY public.orders
-    ADD CONSTRAINT orders_staff_id_staff_id_fk FOREIGN KEY (staff_id) REFERENCES public.staff(id);
+    ADD CONSTRAINT orders_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.staff(id);
 
 ALTER TABLE ONLY public.orders
-    ADD CONSTRAINT orders_table_id_tables_id_fk FOREIGN KEY (table_id) REFERENCES public.tables(id);
+    ADD CONSTRAINT orders_table_id_fkey FOREIGN KEY (table_id) REFERENCES public.tables(id);
 
 ALTER TABLE ONLY public.orders
-    ADD CONSTRAINT orders_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES public.users(id);
+    ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
 
-ALTER DEFAULT PRIVILEGES FOR ROLE cloud_admin IN SCHEMA public GRANT ALL ON SEQUENCES TO neon_superuser WITH GRANT OPTION;
+ALTER TABLE ONLY public.orders
+    ADD CONSTRAINT orders_status_id_fkey FOREIGN KEY (status_id) REFERENCES public.order_statuses(id);
 
-ALTER DEFAULT PRIVILEGES FOR ROLE cloud_admin IN SCHEMA public GRANT ALL ON TABLES TO neon_superuser WITH GRANT OPTION;
+ALTER DEFAULT PRIVILEGES FOR ROLE restaurant_admin IN SCHEMA public GRANT ALL ON SEQUENCES TO restaurant_admin WITH GRANT OPTION;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE restaurant_admin IN SCHEMA public GRANT ALL ON TABLES TO restaurant_admin WITH GRANT OPTION;
 
 ALTER TABLE public.staff 
     ADD CONSTRAINT staff_role_id_fkey 
@@ -515,7 +567,176 @@ ALTER TABLE ONLY public.session
     ADD CONSTRAINT session_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
     ADD CONSTRAINT session_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.staff(id),
     ADD CONSTRAINT session_type_check CHECK (
-        (session_type = 'user' AND user_id IS NOT NULL AND staff_id IS NULL) OR
-        (session_type = 'staff' AND staff_id IS NOT NULL AND user_id IS NULL)
-);
+        (session_type = 'user'::public.session_type AND user_id IS NOT NULL AND staff_id IS NULL) OR
+        (session_type = 'staff'::public.session_type AND staff_id IS NOT NULL AND user_id IS NULL)
+    );
+
+-- Funciones y Triggers
+CREATE OR REPLACE FUNCTION public.update_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.calculate_order_item_subtotal()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.subtotal = NEW.price * NEW.quantity;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.update_order_totals()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE public.orders
+    SET 
+        subtotal = (
+            SELECT COALESCE(SUM(subtotal), 0)
+            FROM public.order_items
+            WHERE order_id = NEW.order_id
+        ),
+        tax = subtotal * tax_rate,
+        total = subtotal + tax
+    WHERE id = NEW.order_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.log_order_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status_id IS DISTINCT FROM NEW.status_id THEN
+        INSERT INTO public.order_status_history 
+        (order_id, old_status_id, new_status_id, changed_by)
+        VALUES (NEW.id, OLD.status_id, NEW.status_id, NEW.user_id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Aplicar triggers para timestamps a todas las tablas
+CREATE TRIGGER update_order_statuses_timestamp
+    BEFORE UPDATE ON public.order_statuses
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_categories_timestamp
+    BEFORE UPDATE ON public.categories
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_menu_items_timestamp
+    BEFORE UPDATE ON public.menu_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_orders_timestamp
+    BEFORE UPDATE ON public.orders
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_roles_timestamp
+    BEFORE UPDATE ON public.roles
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_staff_timestamp
+    BEFORE UPDATE ON public.staff
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_table_statuses_timestamp
+    BEFORE UPDATE ON public.table_statuses
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_tables_timestamp
+    BEFORE UPDATE ON public.tables
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_users_timestamp
+    BEFORE UPDATE ON public.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+-- Índices para búsquedas comunes
+CREATE INDEX idx_staff_name ON public.staff USING gin (to_tsvector('spanish', name));
+CREATE INDEX idx_users_name ON public.users USING gin (to_tsvector('spanish', name));
+CREATE INDEX idx_menu_items_name ON public.menu_items USING gin (to_tsvector('spanish', name));
+
+-- Valores por defecto para campos booleanos
+ALTER TABLE public.staff 
+    ALTER COLUMN is_active SET DEFAULT true;
+
+ALTER TABLE public.orders 
+    ALTER COLUMN with_vat_invoice SET DEFAULT false;
+
+-- Modificar tabla session
+ALTER TABLE public.session 
+    ALTER COLUMN session_type TYPE public.session_type USING session_type::public.session_type;
+
+-- Agregar índices para session
+CREATE INDEX idx_session_user_id ON public.session(user_id);
+CREATE INDEX idx_session_staff_id ON public.session(staff_id);
+
+-- Agregar valores por defecto y restricciones
+ALTER TABLE public.orders 
+    ALTER COLUMN status_id SET DEFAULT 1,
+    ALTER COLUMN with_vat_invoice SET DEFAULT false,
+    ADD CONSTRAINT check_order_total CHECK (total = subtotal + tax);
+
+ALTER TABLE public.tables 
+    ALTER COLUMN status_id SET DEFAULT 1;
+
+-- Aplicar triggers
+CREATE TRIGGER calculate_subtotal
+    BEFORE INSERT OR UPDATE ON public.order_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.calculate_order_item_subtotal();
+
+CREATE TRIGGER update_totals
+    AFTER INSERT OR UPDATE OR DELETE ON public.order_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_order_totals();
+
+CREATE TRIGGER log_status_change
+    AFTER UPDATE ON public.orders
+    FOR EACH ROW
+    EXECUTE FUNCTION public.log_order_status_change();
+
+-- Restricciones CHECK
+ALTER TABLE public.menu_items 
+    ADD CONSTRAINT check_price_positive CHECK (price >= 0);
+
+ALTER TABLE public.order_items 
+    ADD CONSTRAINT check_quantity_positive CHECK (quantity > 0),
+    ADD CONSTRAINT check_price_positive CHECK (price >= 0);
+
+ALTER TABLE public.tables 
+    ADD CONSTRAINT check_seats_positive CHECK (seats > 0);
+
+-- Índices adicionales
+CREATE INDEX idx_menu_items_search ON public.menu_items USING GIN (search_vector);
+CREATE INDEX idx_order_items_menu_item_id ON public.order_items(menu_item_id);
+CREATE INDEX idx_orders_status_id ON public.orders(status_id);
+
+-- Añadir triggers para las tablas que faltan
+CREATE TRIGGER update_order_status_history_timestamp
+    BEFORE UPDATE ON public.order_status_history
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_session_timestamp
+    BEFORE UPDATE ON public.session
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+CREATE TRIGGER update_order_items_timestamp
+    BEFORE UPDATE ON public.order_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
 
