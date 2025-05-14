@@ -57,7 +57,7 @@ export default function DashboardPage() {
   const { data: activeOrders, isLoading: isOrdersLoading } = useQuery({
     queryKey: ["/api/orders", "active"],
     queryFn: async () => {
-      const res = await fetch("/api/orders?status=active");
+      const res = await fetch("/api/orders?status=1,2");
       if (!res.ok) throw new Error("Fallo al obtener los pedidos activos");
       return res.json();
     },
@@ -148,17 +148,17 @@ export default function DashboardPage() {
               icon="orders"
               description={isOrdersLoading
                 ? "Cargando..."
-                : `${activeOrders?.filter((o: any) => o.status === "pending").length || 0} pendientes, ${activeOrders?.filter((o: any) => o.status === "active").length || 0} en progreso`
+                : `${activeOrders?.filter((o: { statusId: number }) => o.statusId === 1).length || 0} pendientes, ${activeOrders?.filter((o: { statusId: number }) => o.statusId === 2).length || 0} en preparación`
               }
             />
 
             <StatCard
               title="Personal en Servicio"
-              value={isStaffMembersLoading ? "Cargando..." : staffMembers?.filter((s: any) => s.isActive).length || "0"}
+              value={isStaffMembersLoading ? "Cargando..." : staffMembers?.filter((s: { roleId: number }) => s.roleId === 1).length || "0"}
               icon="staff"
               description={isStaffMembersLoading
                 ? "Cargando..."
-                : `${staffMembers?.filter((s: any) => s.jobTitle.toLowerCase().includes("mesero")).length || 0} meseros, ${staffMembers?.filter((s: any) => s.jobTitle.toLowerCase().includes("cocina")).length || 0} cocina`
+                : `${staffMembers?.filter((s: { roleId: number }) => s.roleId === 1).length || 0} meseros, ${staffMembers?.filter((s: { roleId: number }) => s.roleId === 2).length || 0} cocina`
               }
             />
 

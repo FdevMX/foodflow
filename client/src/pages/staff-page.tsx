@@ -106,11 +106,11 @@ export default function StaffPage() {
 
   const filteredStaff = staffMembers
     ? staffMembers.filter(
-        (staff: Staff) =>
-          staff.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          staff.jobTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          staff.rfcNumber.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+      (staff: Staff) =>
+        staff.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        staff.jobTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        staff.rfcNumber.toLowerCase().includes(searchTerm.toLowerCase())
+    )
     : [];
 
   return (
