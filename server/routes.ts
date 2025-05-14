@@ -2,9 +2,15 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
-import { insertMenuItemSchema, insertStaffSchema, insertTableSchema, insertOrderSchema, insertOrderItemSchema } from "@shared/schema";
+import { insertMenuItemSchema, insertStaffSchema, insertTableSchema, insertOrderSchema, insertOrderItemSchema, insertUserSchema } from "../shared/schema";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
+import { Router } from "express";
+import { z } from "zod";
+import { db } from './db';
+import { users, staff, roles } from '../shared/schema';
+import { eq } from 'drizzle-orm';
+import { authenticateUser, authenticateStaff, verifyToken, checkRole, hashPassword, logout } from './auth';
 
 // Middleware to check if user is authenticated
 const isAuthenticated = (req: Request, res: Response, next: Function) => {
@@ -13,6 +19,8 @@ const isAuthenticated = (req: Request, res: Response, next: Function) => {
   }
   res.status(401).json({ message: "Unauthorized" });
 };
+
+const router = Router();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
@@ -33,7 +41,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       let menuItems;
       if (req.query.category) {
-        menuItems = await storage.getMenuItemsByCategory(req.query.category as string);
+        menuItems = await storage.getMenuItemsByCategory(parseInt(req.query.category as string));
       } else {
         menuItems = await storage.getMenuItems();
       }
@@ -121,13 +129,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/staff", isAuthenticated, async (req, res) => {
     try {
       const staffData = insertStaffSchema.parse(req.body);
-      
+
       // Check if RFC already exists
       const existingStaff = await storage.getStaffMemberByRfc(staffData.rfcNumber);
       if (existingStaff) {
         return res.status(400).json({ message: "RFC number already exists" });
       }
-      
+
       const staffMember = await storage.createStaffMember(staffData);
       res.status(201).json(staffMember);
     } catch (err) {
@@ -139,7 +147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const staffData = insertStaffSchema.partial().parse(req.body);
-      
+
       // If updating RFC, check if it already exists
       if (staffData.rfcNumber) {
         const existingStaff = await storage.getStaffMemberByRfc(staffData.rfcNumber);
@@ -147,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "RFC number already exists" });
         }
       }
-      
+
       const staffMember = await storage.updateStaffMember(id, staffData);
       if (!staffMember) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -237,7 +245,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       let orders;
       if (req.query.status) {
-        orders = await storage.getOrdersByStatus(req.query.status as string);
+        const statusId = parseInt(req.query.status as string);
+        if (isNaN(statusId)) {
+          return res.status(400).json({ message: "Invalid status ID" });
+        }
+        orders = await storage.getOrdersByStatus(statusId);
       } else if (req.query.startDate && req.query.endDate) {
         const startDate = new Date(req.query.startDate as string);
         const endDate = new Date(req.query.endDate as string);
@@ -319,12 +331,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const orderItemData = insertOrderItemSchema.parse(req.body);
       const orderItem = await storage.createOrderItem(orderItemData);
-      
+
       // Update order total
       const orderItems = await storage.getOrderItems(orderItemData.orderId);
       const totalAmount = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
       await storage.updateOrder(orderItemData.orderId, { totalAmount });
-      
+
       res.status(201).json(orderItem);
     } catch (err) {
       handleZodError(err, res);
@@ -339,14 +351,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!orderItem) {
         return res.status(404).json({ message: "Order item not found" });
       }
-      
+
       // Update order total if needed
       if (orderItemData.quantity || orderItemData.price) {
         const orderItems = await storage.getOrderItems(orderItem.orderId);
         const totalAmount = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         await storage.updateOrder(orderItem.orderId, { totalAmount });
       }
-      
+
       res.json(orderItem);
     } catch (err) {
       handleZodError(err, res);
@@ -359,14 +371,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get the order item to know which order to update
       const [orderItem] = await db.select().from(orderItems).where(eq(orderItems.id, id));
       await storage.deleteOrderItem(id);
-      
+
       // Update order total
       if (orderItem) {
         const orderItems = await storage.getOrderItems(orderItem.orderId);
         const totalAmount = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         await storage.updateOrder(orderItem.orderId, { totalAmount });
       }
-      
+
       res.status(204).send();
     } catch (err) {
       console.error("Error deleting order item:", err);
@@ -417,6 +429,284 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Category routes
+  router.get("/categories", async (req, res) => {
+    try {
+      const categories = await storage.getCategories();
+      res.json(categories);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      res.status(500).json({ error: "Error al obtener las categorías" });
+    }
+  });
+
+  router.get("/categories/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const category = await storage.getCategory(id);
+      if (!category) {
+        return res.status(404).json({ error: "Categoría no encontrada" });
+      }
+      res.json(category);
+    } catch (error) {
+      console.error("Error fetching category:", error);
+      res.status(500).json({ error: "Error al obtener la categoría" });
+    }
+  });
+
+  router.post("/categories", verifyToken, async (req, res) => {
+    try {
+      const categorySchema = z.object({
+        name: z.string().min(1),
+        description: z.string().optional()
+      });
+
+      const categoryData = categorySchema.parse(req.body);
+      const category = await storage.createCategory(categoryData);
+      res.status(201).json(category);
+    } catch (error) {
+      console.error("Error creating category:", error);
+      res.status(500).json({ error: "Error al crear la categoría" });
+    }
+  });
+
+  router.put("/categories/:id", verifyToken, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const categorySchema = z.object({
+        name: z.string().min(1).optional(),
+        description: z.string().optional()
+      });
+
+      const categoryData = categorySchema.parse(req.body);
+      const category = await storage.updateCategory(id, categoryData);
+      if (!category) {
+        return res.status(404).json({ error: "Categoría no encontrada" });
+      }
+      res.json(category);
+    } catch (error) {
+      console.error("Error updating category:", error);
+      res.status(500).json({ error: "Error al actualizar la categoría" });
+    }
+  });
+
+  router.delete("/categories/:id", verifyToken, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteCategory(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      res.status(500).json({ error: "Error al eliminar la categoría" });
+    }
+  });
+
+  // Menu routes
+  router.get("/menu", async (req, res) => {
+    try {
+      const menuItems = await storage.getMenuItems();
+      res.json(menuItems);
+    } catch (error) {
+      console.error("Error fetching menu items:", error);
+      res.status(500).json({ error: "Error al obtener los elementos del menú" });
+    }
+  });
+
+  router.get("/menu/search", async (req, res) => {
+    try {
+      const { q } = req.query;
+      if (!q || typeof q !== "string") {
+        return res.status(400).json({ error: "Se requiere un término de búsqueda" });
+      }
+      const menuItems = await storage.searchMenuItems(q);
+      res.json(menuItems);
+    } catch (error) {
+      console.error("Error searching menu items:", error);
+      res.status(500).json({ error: "Error al buscar elementos del menú" });
+    }
+  });
+
+  router.get("/menu/category/:categoryId", async (req, res) => {
+    try {
+      const categoryId = parseInt(req.params.categoryId);
+      const menuItems = await storage.getMenuItemsByCategory(categoryId);
+      res.json(menuItems);
+    } catch (error) {
+      console.error("Error fetching menu items by category:", error);
+      res.status(500).json({ error: "Error al obtener los elementos del menú por categoría" });
+    }
+  });
+
+  router.get("/menu/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const menuItem = await storage.getMenuItem(id);
+      if (!menuItem) {
+        return res.status(404).json({ error: "Elemento del menú no encontrado" });
+      }
+      res.json(menuItem);
+    } catch (error) {
+      console.error("Error fetching menu item:", error);
+      res.status(500).json({ error: "Error al obtener el elemento del menú" });
+    }
+  });
+
+  router.post("/menu", verifyToken, async (req, res) => {
+    try {
+      const menuItemSchema = z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        price: z.number().positive(),
+        categoryId: z.number(),
+        imageUrl: z.string().url().optional(),
+        inStock: z.boolean().default(true)
+      });
+
+      const menuItemData = menuItemSchema.parse(req.body);
+      const menuItem = await storage.createMenuItem(menuItemData);
+      res.status(201).json(menuItem);
+    } catch (error) {
+      console.error("Error creating menu item:", error);
+      res.status(500).json({ error: "Error al crear el elemento del menú" });
+    }
+  });
+
+  router.put("/menu/:id", verifyToken, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const menuItemSchema = z.object({
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+        price: z.number().positive().optional(),
+        categoryId: z.number().optional(),
+        imageUrl: z.string().url().optional(),
+        inStock: z.boolean().optional()
+      });
+
+      const menuItemData = menuItemSchema.parse(req.body);
+      const menuItem = await storage.updateMenuItem(id, menuItemData);
+      if (!menuItem) {
+        return res.status(404).json({ error: "Elemento del menú no encontrado" });
+      }
+      res.json(menuItem);
+    } catch (error) {
+      console.error("Error updating menu item:", error);
+      res.status(500).json({ error: "Error al actualizar el elemento del menú" });
+    }
+  });
+
+  router.delete("/menu/:id", verifyToken, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteMenuItem(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting menu item:", error);
+      res.status(500).json({ error: "Error al eliminar el elemento del menú" });
+    }
+  });
+
+  // Rutas de autenticación
+  router.post('/auth/login', async (req, res) => {
+    try {
+      const { username, password, type } = req.body;
+
+      if (type === 'staff') {
+        const result = await authenticateStaff(username, password);
+        return res.json(result);
+      } else {
+        const result = await authenticateUser(username, password);
+        return res.json(result);
+      }
+    } catch (error) {
+      return res.status(401).json({ message: error.message });
+    }
+  });
+
+  router.post('/auth/logout', verifyToken, async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(' ')[1];
+      if (token) {
+        await logout(token);
+      }
+      res.json({ message: 'Sesión cerrada exitosamente' });
+    } catch (error) {
+      res.status(500).json({ message: 'Error al cerrar sesión' });
+    }
+  });
+
+  // Rutas de usuarios
+  router.post('/users', verifyToken, checkRole(['admin']), async (req, res) => {
+    try {
+      const userData = insertUserSchema.parse(req.body);
+      const hashedPassword = await hashPassword(userData.password);
+
+      const [user] = await db.insert(users).values({
+        ...userData,
+        password: hashedPassword,
+      }).returning();
+
+      res.status(201).json(user);
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  router.get('/users', verifyToken, checkRole(['admin']), async (req, res) => {
+    try {
+      const allUsers = await db.query.users.findMany({
+        with: {
+          role: true,
+        },
+      });
+      res.json(allUsers);
+    } catch (error) {
+      res.status(500).json({ message: 'Error al obtener usuarios' });
+    }
+  });
+
+  // Rutas de personal
+  router.post('/staff', verifyToken, checkRole(['admin']), async (req, res) => {
+    try {
+      const staffData = insertStaffSchema.parse(req.body);
+      const hashedPassword = staffData.password ? await hashPassword(staffData.password) : null;
+
+      const [staffMember] = await db.insert(staff).values({
+        ...staffData,
+        password: hashedPassword,
+      }).returning();
+
+      res.status(201).json(staffMember);
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  router.get('/staff', verifyToken, checkRole(['admin']), async (req, res) => {
+    try {
+      const allStaff = await db.query.staff.findMany({
+        with: {
+          role: true,
+        },
+      });
+      res.json(allStaff);
+    } catch (error) {
+      res.status(500).json({ message: 'Error al obtener personal' });
+    }
+  });
+
+  // Rutas de roles
+  router.get('/roles', verifyToken, async (req, res) => {
+    try {
+      const allRoles = await db.query.roles.findMany();
+      res.json(allRoles);
+    } catch (error) {
+      res.status(500).json({ message: 'Error al obtener roles' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
+
+export default router;
