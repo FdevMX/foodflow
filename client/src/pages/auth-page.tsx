@@ -15,12 +15,13 @@ import { useState } from "react";
 
 // Esquema para validación de inicio de sesión
 const loginSchema = z.object({
-  username: z.string().min(3, "El nombre de usuario debe tener al menos 3 caracteres"),
+  email: z.string().email("Ingresa un correo electrónico válido"),
   password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
 });
 
 // Esquema para validación de registro
 const registerSchema = insertUserSchema.extend({
+  email: z.string().email("Ingresa un correo electrónico válido"),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
   message: "Las contraseñas no coinciden",
@@ -42,7 +43,7 @@ export default function AuthPage() {
   const loginForm = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
     },
   });
@@ -53,9 +54,10 @@ export default function AuthPage() {
     defaultValues: {
       username: "",
       name: "",
+      email: "",
       password: "",
       confirmPassword: "",
-      role: "admin",
+      roleId: 3, // ID del rol Administrador
     },
   });
 
@@ -63,11 +65,11 @@ export default function AuthPage() {
   const onLoginSubmit = async (values: z.infer<typeof loginSchema>) => {
     setIsSubmitting(true);
     try {
-      await login(values.username, values.password);
+      await login(values.email, values.password);
       navigate("/");
     } catch (error) {
       console.error("Error al iniciar sesión:", error);
-      loginForm.setError("root", { 
+      loginForm.setError("root", {
         message: error instanceof Error ? error.message : "Error al iniciar sesión"
       });
     } finally {
@@ -84,7 +86,7 @@ export default function AuthPage() {
       navigate("/");
     } catch (error) {
       console.error("Error al registrarse:", error);
-      registerForm.setError("root", { 
+      registerForm.setError("root", {
         message: error instanceof Error ? error.message : "Error al registrarse"
       });
     } finally {
@@ -102,7 +104,7 @@ export default function AuthPage() {
               <TabsTrigger value="login">Iniciar Sesión</TabsTrigger>
               <TabsTrigger value="register">Registrarse</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="login">
               <Card>
                 <CardHeader>
@@ -116,12 +118,12 @@ export default function AuthPage() {
                     <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
                       <FormField
                         control={loginForm.control}
-                        name="username"
+                        name="email"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Nombre de usuario</FormLabel>
+                            <FormLabel>Correo electrónico</FormLabel>
                             <FormControl>
-                              <Input placeholder="usuario" {...field} />
+                              <Input type="email" placeholder="correo@ejemplo.com" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -143,8 +145,8 @@ export default function AuthPage() {
                       {loginForm.formState.errors.root && (
                         <p className="text-destructive text-sm">{loginForm.formState.errors.root.message}</p>
                       )}
-                      <Button 
-                        type="submit" 
+                      <Button
+                        type="submit"
                         className="w-full bg-primary hover:bg-primary/90"
                         disabled={isSubmitting || isLoading}
                       >
@@ -156,17 +158,17 @@ export default function AuthPage() {
                       </Button>
                     </form>
                   </Form>
-                  
+
                   {/* Credenciales de prueba */}
                   <div className="mt-6 p-3 bg-muted rounded-md text-sm">
                     <p className="font-semibold mb-1">Credenciales de prueba:</p>
-                    <p>Usuario: <span className="font-mono">admin1</span></p>
+                    <p>Correo: <span className="font-mono">admin@ejemplo.com</span></p>
                     <p>Contraseña: <span className="font-mono">admin123</span></p>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
-            
+
             <TabsContent value="register">
               <Card>
                 <CardHeader>
@@ -206,6 +208,19 @@ export default function AuthPage() {
                       />
                       <FormField
                         control={registerForm.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Correo electrónico</FormLabel>
+                            <FormControl>
+                              <Input type="email" placeholder="correo@ejemplo.com" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={registerForm.control}
                         name="password"
                         render={({ field }) => (
                           <FormItem>
@@ -233,8 +248,8 @@ export default function AuthPage() {
                       {registerForm.formState.errors.root && (
                         <p className="text-destructive text-sm">{registerForm.formState.errors.root.message}</p>
                       )}
-                      <Button 
-                        type="submit" 
+                      <Button
+                        type="submit"
                         className="w-full bg-accent hover:bg-accent/90"
                         disabled={isSubmitting || isLoading}
                       >
@@ -252,14 +267,14 @@ export default function AuthPage() {
           </Tabs>
         </div>
       </div>
-      
+
       {/* Lado derecho - Sección de información */}
       <div className="flex-1 bg-primary p-12 hidden md:flex flex-col justify-center text-white">
         <div className="max-w-md mx-auto">
           <h1 className="text-4xl font-bold mb-4">FoodFlow</h1>
           <h2 className="text-2xl font-medium mb-6">Sistema de Gestión de Restaurantes</h2>
           <p className="mb-8 text-primary-foreground">
-            Una solución completa para propietarios y gerentes de restaurantes. 
+            Una solución completa para propietarios y gerentes de restaurantes.
             Gestiona de manera eficiente tu menú, personal, pedidos y mesas en un solo lugar.
           </p>
           <div className="space-y-4">
