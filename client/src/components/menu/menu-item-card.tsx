@@ -36,6 +36,15 @@ const defaultCategoryImages = {
   desserts: "https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1200&h=800",
 };
 
+// Mapeo de categoryId a nombres de categorías
+const categoryMap: Record<number, string> = {
+  1: "Breakfast",
+  2: "Lunch",
+  3: "Dinner",
+  4: "Beverages",
+  5: "Desserts",
+};
+
 const getCategoryBadgeClass = (category: string) => {
   switch (category) {
     case "breakfast":
@@ -82,11 +91,13 @@ export function MenuItemCard({ menuItem, onEdit, onDelete }: MenuItemCardProps) 
               <h3 className="font-poppins font-semibold text-lg">{menuItem.name}</h3>
               <p className="text-sm text-muted-foreground line-clamp-2">{menuItem.description}</p>
             </div>
-            <span className="font-poppins font-semibold text-lg">${menuItem.price.toFixed(2)}</span>
+            <span className="font-poppins font-semibold text-lg">
+              ${!isNaN(Number(menuItem.price)) ? Number(menuItem.price).toFixed(2) : '0.00'}
+            </span>
           </div>
           <div className="mt-3 flex items-center">
-            <span className={`px-2 py-1 text-xs rounded-full ${getCategoryBadgeClass(menuItem.category)}`}>
-              {menuItem.category.charAt(0).toUpperCase() + menuItem.category.slice(1)}
+            <span className={`px-2 py-1 text-xs rounded-full ${getCategoryBadgeClass(categoryMap[menuItem.categoryId ?? 0] || 'default')}`}>
+              {menuItem.categoryId !== null && categoryMap[menuItem.categoryId] ? categoryMap[menuItem.categoryId] : 'Sin categoría'}
             </span>
             <span className={`ml-2 text-sm ${menuItem.inStock ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
               {menuItem.inStock ? 'In Stock' : 'Out of Stock'}
@@ -108,8 +119,10 @@ export function MenuItemCard({ menuItem, onEdit, onDelete }: MenuItemCardProps) 
             <DialogTitle>{menuItem.name}</DialogTitle>
             <DialogDescription>
               <img src={imageUrl} alt={menuItem.name} className="w-full h-64 object-cover rounded mb-4" />
-              <div className="mb-2 text-lg font-semibold">${menuItem.price.toFixed(2)}</div>
-              <div className="mb-2"><span className={`px-2 py-1 text-xs rounded-full ${getCategoryBadgeClass(menuItem.category)}`}>{menuItem.category.charAt(0).toUpperCase() + menuItem.category.slice(1)}</span></div>
+              <div className="mb-2 text-lg font-semibold">
+                ${!isNaN(Number(menuItem.price)) ? Number(menuItem.price).toFixed(2) : '0.00'}
+              </div>
+              <div className="mb-2"><span className={`px-2 py-1 text-xs rounded-full ${getCategoryBadgeClass(menuItem.category)}`}>{typeof menuItem.category === 'string' && menuItem.category.length > 0 ? menuItem.category.charAt(0).toUpperCase() + menuItem.category.slice(1) : 'Sin categoría'}</span></div>
               <div className="mb-2"><span className={`text-sm ${menuItem.inStock ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{menuItem.inStock ? 'In Stock' : 'Out of Stock'}</span></div>
               <div className="mb-2 text-base">{menuItem.description}</div>
             </DialogDescription>
