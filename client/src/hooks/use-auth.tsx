@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const { toast } = useToast();
-  
+
   // Cargar usuario inicial
   useEffect(() => {
     const fetchUser = async () => {
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const res = await fetch('/api/user', {
           credentials: 'include'
         });
-        
+
         if (res.status === 401) {
           setUser(null);
         } else if (res.ok) {
@@ -55,18 +55,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     };
-    
+
     fetchUser();
   }, []);
-  
+
   // Función de inicio de sesión
-  const login = async (username: string, password: string) => {
+  const login = async (email: string, password: string) => {
     try {
       setIsLoading(true);
-      const res = await apiRequest("POST", "/api/login", { username, password });
+      const res = await apiRequest("POST", "/api/login", { email, password });
       if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText || "Error al iniciar sesión");
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.message || "Error al iniciar sesión");
       }
       const userData = await res.json();
       setUser(userData);
@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   };
-  
+
   // Función de registro
   const register = async (userData: InsertUser) => {
     try {
@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newUser);
       toast({
         title: "Registro exitoso",
-        description: `¡Bienvenido a FoodFlow, ${newUser.name || newUser.username}!`,
+        description: `¡Bienvenido a FoodFlow, ${newUser.user.name || newUser.user.username}!`,
       });
     } catch (err) {
       toast({
@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   };
-  
+
   // Función de cierre de sesión
   const logout = async () => {
     try {
@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   };
-  
+
   return (
     <AuthContext.Provider
       value={{
